@@ -11,7 +11,6 @@ Jetson无线配网主脚本
 版本: 1.1
 日期: 2024-06-23
 更新: 添加了自动检测无线网卡接口的功能
-      添加了远程SSH操作功能，当通过Wi-Fi AP连接时通过SSH执行网络操作
 """
 import os
 import sys
@@ -21,22 +20,6 @@ import subprocess
 import socket
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs
-
-# 尝试导入paramiko库，用于SSH连接
-try:
-    import paramiko
-    SSH_AVAILABLE = True
-except ImportError:
-    print("警告: paramiko库未安装，SSH功能将不可用")
-    print("请使用 'pip install paramiko' 安装paramiko库")
-    SSH_AVAILABLE = False
-
-# 远程服务器配置
-REMOTE_SERVER_IP = "10.0.1.41"
-# 远程操作时使用的SSH客户端
-remote_ssh_client = None
-# 标识当前是否通过AP模式连接
-is_ap_connection = False
 
 def get_wifi_interfaces():
     """
@@ -77,145 +60,6 @@ def get_wifi_interfaces():
     except Exception as e:
         print(f"获取无线网卡接口时出错: {e}")
         return []
-
-def connect_ssh_remote_server(remote_ip):
-    """
-    连接到远程服务器
-    
-    参数:
-        remote_ip (str): 远程服务器IP地址
-    
-    返回:
-        bool: 连接是否成功
-    """
-    global remote_ssh_client
-    
-    if not SSH_AVAILABLE:
-        print("paramiko库未安装，无法连接到远程服务器")
-        return False
-        
-    try:
-        # 如果已经有连接，先关闭
-        if remote_ssh_client:
-            try:
-                remote_ssh_client.close()
-            except Exception:
-                pass
-            remote_ssh_client = None
-        
-        # 创建SSH客户端
-        remote_ssh_client = paramiko.SSHClient()
-        remote_ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
-        # 尝试使用密码和密钥两种方式连接
-        try:
-            # 首先尝试使用密钥认证
-            print(f"尝试连接到远程服务器: {remote_ip} (密钥认证)...")
-            remote_ssh_client.connect(remote_ip, timeout=10)
-        except Exception as e1:
-            try:
-                # 如果密钥认证失败，尝试使用密码认证
-                print(f"密钥认证失败: {e1}")
-                print(f"尝试使用密码认证连接到远程服务器: {remote_ip}...")
-                # 这里假设使用无密码登录或系统已配置SSH密钥
-                # 如果需要密码，可以修改为: remote_ssh_client.connect(remote_ip, username='username', password='password')
-                remote_ssh_client.connect(remote_ip, timeout=10)
-            except Exception as e2:
-                print(f"SSH连接失败: {e2}")
-                remote_ssh_client = None
-                return False
-        
-        if remote_ssh_client is None:
-            return False
-            
-        print(f"已成功连接到远程服务器: {remote_ip}")
-        return True
-    except Exception as e:
-        print(f"连接远程服务器时出错: {e}")
-        if remote_ssh_client:
-            try:
-                remote_ssh_client.close()
-            except Exception:
-                pass
-            remote_ssh_client = None
-        return False
-
-def run_remote_command(command):
-    """
-    在远程服务器上执行命令
-    
-    参数:
-        command (str): 要执行的命令
-    
-    返回:
-        tuple: (bool, str) - 命令是否成功执行和命令输出
-    """
-    global remote_ssh_client
-    
-    if not SSH_AVAILABLE or remote_ssh_client is None:
-        return False, "SSH客户端不可用"
-        
-    try:
-        stdin, stdout, stderr = remote_ssh_client.exec_command(command)
-        exit_code = stdout.channel.recv_exit_status()
-        output = stdout.read().decode('utf-8')
-        error = stderr.read().decode('utf-8')
-        
-        if exit_code != 0:
-            return False, f"命令执行失败: {error}"
-        
-        return True, output
-    except Exception as e:
-        return False, f"执行远程命令时出错: {e}"
-
-def close_ssh_connection():
-    """
-    关闭SSH连接
-    """
-    global remote_ssh_client
-    
-    if remote_ssh_client:
-        try:
-            remote_ssh_client.close()
-            print("SSH连接已关闭")
-        except Exception:
-            pass
-        finally:
-            remote_ssh_client = None
-
-def is_connected_via_ap():
-    """
-    检查当前是否通过AP模式连接
-    
-    返回:
-        bool: 是否通过AP模式连接
-    """
-    global is_ap_connection
-    
-    try:
-        # 检查当前IP地址是否在AP模式的IP范围内
-        current_ip = get_local_ip()
-        # AP模式通常使用10.0.0.x网段
-        if current_ip.startswith('10.0.0.'):
-            # 检查是否有AP模式的进程在运行
-            try:
-                result = subprocess.run(['pgrep', 'create_ap'], capture_output=True, text=True)
-                if result.returncode == 0:
-                    is_ap_connection = True
-                    return True
-            except Exception:
-                pass
-            
-            # 检查接口配置
-            result = subprocess.run(['ip', 'addr', 'show', DEFAULT_AP_INTERFACE], capture_output=True, text=True)
-            if 'inet 10.0.0.' in result.stdout:
-                is_ap_connection = True
-                return True
-    except Exception as e:
-        print(f"检查连接模式时出错: {e}")
-    
-    is_ap_connection = False
-    return False
 
 # 默认配置
 DEFAULT_AP_SSID = "JETSON_AP"
@@ -290,8 +134,8 @@ class WifiConfigHandler(BaseHTTPRequestHandler):
                 self.wfile.write(response.encode('utf-8'))
                 
                 # 在单独的线程中关闭AP模式
-                import threading
-                threading.Thread(target=switch_to_sta_mode).start()
+                # import threading
+                # threading.Thread(target=switch_to_sta_mode).start()
             else:
                 self.send_response(500)
                 self.send_header('Content-type', 'application/json; charset=utf-8')
@@ -718,7 +562,6 @@ def main():
         print("错误: 此脚本需要以root权限运行")
         print("请使用 sudo python jetson_wifi_config.py 命令运行")
         sys.exit(1)
-        
     
     # 显示检测到的无线网卡接口
     wifi_interfaces = get_wifi_interfaces()
