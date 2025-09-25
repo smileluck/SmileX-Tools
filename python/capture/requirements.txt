@@ -1,0 +1,9 @@
+beautifulsoup4==4.12.3
+cloudscraper==1.2.71
+DrissionPage==4.0.4.23
+DrissionPage==4.1.0.17
+httpx==0.28.1
+PyMySQL==1.1.1
+pytest==8.2.1
+Requests==2.32.3
+urllib3==1.26.18
