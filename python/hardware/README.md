@@ -7,13 +7,15 @@
 
 ## 项目简介
 
-这是一个简单的爬虫项目，旨在帮助你快速入门并实现自己的网络爬虫。本项目使用Python语言和BeautifulSoup库进行开发。
+这是一个硬件模块项目，旨在帮助你快速入门并实现自己的硬件模块。本项目使用Python语言和相关库进行开发。
 
 ## 系统要求
 
-- Python 3.6 或更高版本
-- BeautifulSoup 4
+- bluez
 - requests
+- psutil
+- pyusb
+- linux
 
 ## 安装指南
 
@@ -26,7 +28,7 @@ git clone https://github.com/smileluck/SmileX-Tools.git
 2. 进入项目目录：
 
 ```
-cd capture
+cd hardware
 ```
 
 3. 创建一个虚拟环境（可选）：
@@ -45,7 +47,7 @@ pip install -r requirements.txt
 ## 项目结构
 
 ```
-capture/
+hardware/
 │
 ├── src/                  # 源代码文件夹
 │   ├── __init__.py

@@ -11,7 +11,6 @@ Jetson无线配网主脚本
 版本: 1.1
 日期: 2024-06-23
 更新: 添加了自动检测无线网卡接口的功能
-      添加了远程SSH操作功能，当通过Wi-Fi AP连接时通过SSH执行网络操作
 """
 import os
 import sys
@@ -21,15 +20,6 @@ import subprocess
 import socket
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs
-
-# 尝试导入paramiko库，用于SSH连接
-try:
-    import paramiko
-    SSH_AVAILABLE = True
-except ImportError:
-    print("警告: paramiko库未安装，SSH功能将不可用")
-    print("请使用 'pip install paramiko' 安装paramiko库")
-    SSH_AVAILABLE = False
 
 def get_wifi_interfaces():
     """
@@ -71,165 +61,15 @@ def get_wifi_interfaces():
         print(f"获取无线网卡接口时出错: {e}")
         return []
 
-def connect_ssh_remote_server(remote_ip):
-    """
-    连接到远程服务器
-    
-    参数:
-        remote_ip (str): 远程服务器IP地址
-    
-    返回:
-        bool: 连接是否成功
-    """
-    global remote_ssh_client
-    
-    if not SSH_AVAILABLE:
-        print("paramiko库未安装，无法连接到远程服务器")
-        return False
-        
-    try:
-        # 如果已经有连接，先关闭
-        if remote_ssh_client:
-            try:
-                remote_ssh_client.close()
-            except Exception:
-                pass
-            remote_ssh_client = None
-        
-        # 创建SSH客户端
-        remote_ssh_client = paramiko.SSHClient()
-        remote_ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
-        # 尝试使用密码和密钥两种方式连接
-        try:
-            # 首先尝试使用密钥认证
-            print(f"尝试连接到远程服务器: {remote_ip} (密钥认证)...")
-            remote_ssh_client.connect(remote_ip, timeout=10)
-        except Exception as e1:
-            try:
-                # 如果密钥认证失败，尝试使用密码认证
-                print(f"密钥认证失败: {e1}")
-                print(f"尝试使用密码认证连接到远程服务器: {remote_ip}...")
-                # 这里假设使用无密码登录或系统已配置SSH密钥
-                # 如果需要密码，可以修改为: remote_ssh_client.connect(remote_ip, username='username', password='password')
-                remote_ssh_client.connect(remote_ip, timeout=10)
-            except Exception as e2:
-                print(f"SSH连接失败: {e2}")
-                remote_ssh_client = None
-                return False
-        
-        if remote_ssh_client is None:
-            return False
-            
-        print(f"已成功连接到远程服务器: {remote_ip}")
-        return True
-    except Exception as e:
-        print(f"连接远程服务器时出错: {e}")
-        if remote_ssh_client:
-            try:
-                remote_ssh_client.close()
-            except Exception:
-                pass
-            remote_ssh_client = None
-        return False
-
-def run_remote_command(command):
-    """
-    在远程服务器上执行命令
-    
-    参数:
-        command (str): 要执行的命令
-    
-    返回:
-        tuple: (bool, str) - 命令是否成功执行和命令输出
-    """
-    global remote_ssh_client
-    
-    if not SSH_AVAILABLE or remote_ssh_client is None:
-        return False, "SSH客户端不可用"
-        
-    try:
-        stdin, stdout, stderr = remote_ssh_client.exec_command(command)
-        exit_code = stdout.channel.recv_exit_status()
-        output = stdout.read().decode('utf-8')
-        error = stderr.read().decode('utf-8')
-        
-        if exit_code != 0:
-            return False, f"命令执行失败: {error}"
-        
-        return True, output
-    except Exception as e:
-        return False, f"执行远程命令时出错: {e}"
-
-def close_ssh_connection():
-    """
-    关闭SSH连接
-    """
-    global remote_ssh_client
-    
-    if remote_ssh_client:
-        try:
-            remote_ssh_client.close()
-            print("SSH连接已关闭")
-        except Exception:
-            pass
-        finally:
-            remote_ssh_client = None
-
-def is_connected_via_ap():
-    """
-    检查当前是否通过AP模式连接
-    
-    返回:
-        bool: 是否通过AP模式连接
-    """
-    global is_ap_connection
-    
-    try:
-        # 检查当前IP地址是否在AP模式的IP范围内
-        # current_ip = get_local_ip()
-        # AP模式通常使用10.0.0.x网段
-        # if current_ip.startswith('10.0.0.'):
-        #     # 检查是否有AP模式的进程在运行
-        #     try:
-        #         result = subprocess.run(['pgrep', 'create_ap'], capture_output=True, text=True)
-        #         if result.returncode == 0:
-        #             is_ap_connection = True
-        #             return True
-        #     except Exception:
-        #         pass
-            
-        #     # 检查接口配置
-        #     result = subprocess.run(['ip', 'addr', 'show', DEFAULT_AP_INTERFACE], capture_output=True, text=True)
-        #     if 'inet 10.0.0.' in result.stdout:
-        #         is_ap_connection = True
-        #         return True
-        # 检查 /agibot/data/var/hostapd/hostapd.conf 文件是否存在
-        if os.path.exists('/agibot/data/var/hostapd/hostapd.conf'):
-            is_ap_connection = True
-            return True
-    except Exception as e:
-        print(f"检查连接模式时出错: {e}")
-    
-    is_ap_connection = False
-    return False
-
 # 默认配置
 DEFAULT_AP_SSID = "JETSON_AP"
 DEFAULT_AP_PASSWORD = "jetson-123"
 # 获取无线网卡接口，如果没有找到则使用默认值
 wifi_interfaces = get_wifi_interfaces()
 DEFAULT_AP_INTERFACE = wifi_interfaces[0] if wifi_interfaces else "wlan0"
-DEFAULT_AP_IP = "10.0.0.1"
-DEFAULT_AP_PORT = 5000
-CONFIG_FILE = "/etc/jetson_wifi_config.json"
-
-# 远程服务器配置
-REMOTE_SERVER_IP = "10.0.1.41"
-# 远程操作时使用的SSH客户端
-remote_ssh_client = None
-# 标识当前是否通过AP模式连接
-is_ap_connection = False
+# DEFAULT_AP_IP = "10.0.0.1"
+# DEFAULT_AP_PORT = 5000
+# CONFIG_FILE = "/etc/jetson_wifi_config.json"
 
 def get_local_ip():
     """获取本机IP地址"""
@@ -243,8 +83,7 @@ def get_local_ip():
     except Exception:
         return "127.0.0.1"
 
-DEFAULT_AP_IP = get_local_ip()
-
+DEFAULT_AP_IP = "0.0.0.0"
 DEFAULT_AP_PORT = 5000
 CONFIG_FILE = "/etc/jetson_wifi_config.json"
 
@@ -290,12 +129,12 @@ class WifiConfigHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json; charset=utf-8')
                 self.end_headers()
-                response = json.dumps({"status": "success", "message": "正在连接到Wi-Fi..."}, ensure_ascii=False)
+                response = json.dumps({"status": "success", "message": "连接成功"}, ensure_ascii=False)
                 self.wfile.write(response.encode('utf-8'))
                 
                 # 在单独的线程中关闭AP模式
-                # import threading
-                # threading.Thread(target=switch_to_sta_mode).start()
+                import threading
+                threading.Thread(target=switch_to_sta_mode).start()
             else:
                 self.send_response(500)
                 self.send_header('Content-type', 'application/json; charset=utf-8')
@@ -369,7 +208,7 @@ class WifiConfigHandler(BaseHTTPRequestHandler):
                             if (data.status === 'success') {
                                 statusDiv.textContent = data.message;
                                 statusDiv.className = 'success';
-                                # 连接成功后，页面保持10秒然后刷新
+                                // 连接成功后，页面保持10秒然后刷新
                                 setTimeout(() => {
                                     statusDiv.textContent = '连接成功！正在重新启动网络服务...';
                                 }, 1000);
@@ -717,176 +556,63 @@ def clear_nmcli_connections():
 
 def main():
     """主函数"""
-    global remote_ssh_client
-    
     # 检查是否以root权限运行
     if not is_root():
         print("错误: 此脚本需要以root权限运行")
         print("请使用 sudo python jetson_wifi_config.py 命令运行")
         sys.exit(1)
-        
+    
     # 显示检测到的无线网卡接口
     wifi_interfaces = get_wifi_interfaces()
     print(f"检测到的无线网卡接口: {', '.join(wifi_interfaces) if wifi_interfaces else '未找到'}")
     print(f"当前使用的接口: {DEFAULT_AP_INTERFACE}")
     
+
     # 在主函数中合适位置调用该函数，例如在检查root权限之后
-    if clear_nmcli_connections():
-        print("已清空网络连接历史")
-    else:
-        print("清空网络连接历史失败")
-        
-    # 检查当前是否通过AP模式连接
-    if is_connected_via_ap():
-        print("检测到当前通过Wi-Fi AP模式连接")
-        
-        # 尝试连接到远程服务器
-        if SSH_AVAILABLE:
-            print(f"尝试通过SSH连接到远程服务器: {REMOTE_SERVER_IP}")
-            if connect_ssh_remote_server(REMOTE_SERVER_IP):
-                print(f"已通过SSH连接到远程服务器 {REMOTE_SERVER_IP}，将在远程服务器上执行网络操作")
-                
-                try:
-                    # 在远程服务器上执行网络操作
-                    execute_remote_network_operations()
-                except Exception as e:
-                    print(f"执行远程网络操作时出错: {e}")
-                finally:
-                    close_ssh_connection()
-            else:
-                print(f"无法连接到远程服务器 {REMOTE_SERVER_IP}，将在本地执行网络操作")
-        else:
-            print("paramiko库未安装，无法使用SSH功能，将在本地执行网络操作")
-    else:
-        print("当前不是通过AP模式连接，将在本地执行网络操作")
-        
-    # 在本地执行网络操作
-    execute_local_network_operations()
+    # clear_nmcli_connections()
 
-def execute_remote_network_operations():
-    """
-    在远程服务器上执行网络操作
-    """
-    global remote_ssh_client
+    # 检查是否已连接到Wi-Fi
+    # if check_wifi_connection():
+    #     print("已连接到Wi-Fi网络，无需配置")
+    #     sys.exit(0)
     
-    if not SSH_AVAILABLE or remote_ssh_client is None:
-        print("SSH客户端不可用，无法执行远程网络操作")
-        return
+    # 尝试加载已保存的Wi-Fi配置
+    config = load_wifi_config()
+    if config:
+        print("发现已保存的Wi-Fi配置，尝试连接...")
+        ssid = config.get('ssid')
+        password = config.get('password')
         
-    try:
-        print("在远程服务器上执行网络操作...")
-        
-        # 检查远程服务器是否已连接到Wi-Fi
-        success, output = run_remote_command("nmcli -t -f active,ssid dev wifi | grep '^yes:' | cut -d: -f2")
-        if success and output.strip():
-            print(f"远程服务器已连接到Wi-Fi网络: {output.strip()}")
-            
-            # 检查网络连接
-            success, output = run_remote_command("ping -c 1 8.8.8.8 > /dev/null 2>&1 && echo 'connected' || echo 'disconnected'")
-            if success and output.strip() == 'connected':
-                print("远程服务器网络连接正常")
-                return
+        if ssid and password:
+            if connect_to_wifi(ssid, password):
+                print("使用已保存的配置成功连接到Wi-Fi")
+                sys.exit(0)
             else:
-                print("远程服务器网络连接异常，尝试重新连接")
-        else:
-            print("远程服务器未连接到Wi-Fi网络")
-            
-        # 尝试加载远程服务器上已保存的Wi-Fi配置
-        success, output = run_remote_command("test -f /etc/jetson_wifi_config.json && cat /etc/jetson_wifi_config.json || echo 'not found'")
-        if success and output.strip() != 'not found':
-            try:
-                config = json.loads(output)
-                print("发现远程服务器上已保存的Wi-Fi配置，尝试连接...")
-                ssid = config.get('ssid')
-                password = config.get('password')
-                
-                if ssid and password:
-                    # 在远程服务器上执行连接Wi-Fi命令
-                    command = f"sudo nmcli device wifi connect '{ssid}' password '{password}' ifname {DEFAULT_AP_INTERFACE}"
-                    success, output = run_remote_command(command)
-                    if success:
-                        print(f"通过SSH在远程服务器上成功连接到Wi-Fi: {ssid}")
-                        # 验证连接
-                        success, output = run_remote_command("ping -c 3 8.8.8.8 > /dev/null 2>&1 && echo 'success' || echo 'fail'")
-                        if success and output.strip() == 'success':
-                            print("Wi-Fi连接已验证，远程服务器网络可达")
-                            return
-                        else:
-                            print("警告: 连接已建立，但远程服务器无法访问网络")
-                    else:
-                        print(f"通过SSH在远程服务器上连接Wi-Fi失败: {output}")
-            except json.JSONDecodeError:
-                print("远程服务器上的配置文件格式错误")
-            except Exception as e:
-                print(f"处理远程配置文件时出错: {e}")
-            
-        # 在远程服务器上启动Web服务器进行配网
-        print("在远程服务器上启动Web服务器进行配网...")
-        # 创建一个简单的Web服务器来接收Wi-Fi配置
-        web_server_command = '''python3 -c \
-'import json\nfrom http.server import HTTPServer, BaseHTTPRequestHandler\n\nclass WifiConfigHandler(BaseHTTPRequestHandler):\n    def do_POST(self):\n        if self.path == "/connect_wifi":\n            self.send_response(200)\n            self.send_header("Content-type", "application/json")\n            self.end_headers()\n            content_length = int(self.headers["Content-Length"])\n            post_data = self.rfile.read(content_length).decode("utf-8")\n            try:\n                data = json.loads(post_data)\n                ssid = data.get("ssid")\n                password = data.get("password")\n                print(f"收到Wi-Fi凭据: SSID={ssid}")\n                # 保存配置\n                with open("/etc/jetson_wifi_config.json", "w") as f:\n                    json.dump({"ssid": ssid, "password": password}, f)\n                # 连接Wi-Fi\n                import subprocess\n                result = subprocess.run(["sudo", "nmcli", "device", "wifi", "connect", ssid, "password", password],\n                                      capture_output=True, text=True)\n                if result.returncode == 0:\n                    response = json.dumps({"status": "success", "message": "正在连接到Wi-Fi..."})\n                    self.wfile.write(response.encode())\n                else:\n                    response = json.dumps({"status": "error", "message": "连接失败"})\n                    self.wfile.write(response.encode())\n            except Exception as e:\n                response = json.dumps({"status": "error", "message": str(e)})\n                self.wfile.write(response.encode())\n    \n    def do_GET(self):\n        if self.path == "/":\n            self.send_response(200)\n            self.send_header("Content-type", "text/html")\n            self.end_headers()\n            html = '''"""<!DOCTYPE html>\n<html>\n<head>\n    <meta charset="UTF-8">\n    <title>Jetson Wi-Fi配置</title>\n    <style>\n        body { font-family: Arial, sans-serif; max-width: 400px; margin: 0 auto; padding: 20px; }\n        h1 { text-align: center; }\n        .form-group { margin-bottom: 15px; }\n        label { display: block; margin-bottom: 5px; }\n        input[type="text"], input[type="password"] { width: 100%; padding: 8px; box-sizing: border-box; }\n        button { width: 100%; padding: 10px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }\n        button:hover { background-color: #45a049; }\n    </style>\n</head>\n<body>\n    <h1>Jetson Wi-Fi配置</h1>\n    <form id="wifiForm">\n        <div class="form-group">\n            <label for="ssid">Wi-Fi名称 (SSID):</label>\n            <input type="text" id="ssid" name="ssid" required>\n        </div>\n        <div class="form-group">\n            <label for="password">Wi-Fi密码:</label>\n            <input type="password" id="password" name="password" required>\n        </div>\n        <button type="submit">连接</button>\n    </form>\n    <div id="status"></div>\n    <script>\n        document.getElementById('wifiForm').addEventListener('submit', function(e){\n            e.preventDefault();\n            const ssid = document.getElementById('ssid').value;\n            const password = document.getElementById('password').value;\n            fetch('/connect_wifi', {\n                method: 'POST',\n                headers: {'Content-Type': 'application/json'},\n                body: JSON.stringify({ssid: ssid, password: password})\n            }).then(r => r.json()).then(data => {\n                const status = document.getElementById('status');\n                status.textContent = data.message;\n                status.className = data.status === 'success' ? 'success' : 'error';\n            });\n        });\n    </script>\n</body>\n</html>"""'''\n            self.wfile.write(html.encode())\n\nserver = HTTPServer(('', 5000), WifiConfigHandler)\nprint('远程Web服务器已启动，端口5000')\nserver.serve_forever()' '''
-        
-        # 在后台运行Web服务器
-        success, output = run_remote_command(f"nohup {web_server_command} > /tmp/remote_web_server.log 2>&1 &")
-        if success:
-            print("远程Web服务器已在后台启动，访问 http://10.0.1.41:5000/ 配置Wi-Fi")
-            print("Web服务器日志保存在远程服务器的 /tmp/remote_web_server.log")
-        else:
-            print(f"启动远程Web服务器失败: {output}")
-        
-    except Exception as e:
-        print(f"执行远程网络操作时出错: {e}")
-
-def execute_local_network_operations():
-    """
-    在本地执行网络操作
-    """
+                print("使用已保存的配置连接Wi-Fi失败，启动AP模式...")
+    
+    # 启动AP模式
+    # ap_success, ap_process = start_ap_mode()
+    # if not ap_success:
+    #     print("无法启动AP模式，尝试手动配置...")
+    #     # 这里可以添加手动配置AP模式的代码
+    #     sys.exit(1)
+    
+    # 启动Web服务器
     try:
-        # 检查是否已连接到Wi-Fi
-        # if check_wifi_connection():
-        #     print("已连接到Wi-Fi网络，无需配置")
-        #     sys.exit(0)
+        httpd = start_web_server()
+        # 保持Web服务器运行
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("正在关闭Web服务器...")
+        httpd.server_close()
+    finally:
+        # 确保AP模式已关闭
+        # if ap_process:
+        #     ap_process.terminate()
+        #     ap_process.wait()
         
-        # 尝试加载已保存的Wi-Fi配置
-        config = load_wifi_config()
-        if config:
-            print("发现已保存的Wi-Fi配置，尝试连接...")
-            ssid = config.get('ssid')
-            password = config.get('password')
-            
-            if ssid and password:
-                if connect_to_wifi(ssid, password):
-                    print("使用已保存的配置成功连接到Wi-Fi")
-                    sys.exit(0)
-                else:
-                    print("使用已保存的配置连接Wi-Fi失败，启动AP模式...")
-        
-        # 启动AP模式
-        # ap_success, ap_process = start_ap_mode()
-        # if not ap_success:
-        #     print("无法启动AP模式，尝试手动配置...")
-        #     # 这里可以添加手动配置AP模式的代码
-        #     sys.exit(1)
-        
-        # 启动Web服务器
-        try:
-            httpd = start_web_server()
-            # 保持Web服务器运行
-            httpd.serve_forever()
-        except KeyboardInterrupt:
-            print("正在关闭Web服务器...")
-            httpd.server_close()
-        finally:
-            # 确保AP模式已关闭
-            # if ap_process:
-            #     ap_process.terminate()
-            #     ap_process.wait()
-            
-            # 切换回STA模式
-            switch_to_sta_mode()
-    except Exception as e:
-        print(f"执行本地网络操作时出错: {e}")
-        sys.exit(1)
+        # 切换回STA模式
+        switch_to_sta_mode()
 
 if __name__ == '__main__':
     main()
