@@ -1,0 +1,48 @@
+org.bluez.Adapter1                  interface -         -                                        -
+.GetDiscoveryFilters                method    -         as                                       -
+.RemoveDevice                       method    o         -                                        -
+.SetDiscoveryFilter                 method    a{sv}     -                                        -
+.StartDiscovery                     method    -         -                                        -
+.StopDiscovery                      method    -         -                                        -
+.Address                            property  s         "A4:E8:8D:5B:81:10"                      emits-c>
+.AddressType                        property  s         "public"                                 emits-c>
+.Alias                              property  s         "Ubuntu-GATT-Server"                     emits-c>
+.Class                              property  u         7077888                                  emits-c>
+.Discoverable                       property  b         false                                    emits-c>
+.DiscoverableTimeout                property  u         180                                      emits-c>
+.Discovering                        property  b         false                                    emits-c>
+.ExperimentalFeatures               property  as        -                                        emits-c>
+.Modalias                           property  s         "usb:v1D6Bp0246d0540"                    emits-c>
+.Name                               property  s         "agi"                                    emits-c>
+.Pairable                           property  b         true                                     emits-c>
+.PairableTimeout                    property  u         0                                        emits-c>
+.Powered                            property  b         true                                     emits-c>
+.Roles                              property  as        2 "central" "peripheral"                 emits-c>
+.UUIDs                              property  as        12 "0000110e-0000-1000-8000-00805f9b34f… emits-c>
+org.bluez.GattManager1              interface -         -                                        -
+.RegisterApplication                method    oa{sv}    -                                        -
+.UnregisterApplication              method    o         -                                        -
+org.bluez.LEAdvertisingManager1     interface -         -                                        -
+.RegisterAdvertisement              method    oa{sv}    -                                        -
+.UnregisterAdvertisement            method    o         -                                        -
+.ActiveInstances                    property  y         1                                        emits-c>
+.SupportedIncludes                  property  as        3 "tx-power" "appearance" "local-name"   emits-c>
+.SupportedInstances                 property  y         9                                        emits-c>
+.SupportedSecondaryChannels         property  as        3 "1M" "2M" "Coded"                      emits-c>
+org.bluez.Media1                    interface -         -                                        -
+.RegisterApplication                method    oa{sv}    -                                        -
+.RegisterEndpoint                   method    oa{sv}    -                                        -
+.RegisterPlayer                     method    oa{sv}    -                                        -
+.UnregisterApplication              method    o         -                                        -
+.UnregisterEndpoint                 method    o         -                                        -
+.UnregisterPlayer                   method    o         -                                        -
+org.bluez.NetworkServer1            interface -         -                                        -
+.Register                           method    ss        -                                        -
+.Unregister                         method    s         -                                        -
+org.freedesktop.DBus.Introspectable interface -         -                                        -
+.Introspect                         method    -         s                                        -
+org.freedesktop.DBus.Properties     interface -         -                                        -
+.Get                                method    ss        v                                        -
+.GetAll                             method    s         a{sv}                                    -
+.Set                                method    ssv       -                                        -
+.PropertiesChanged                  signal    sa{sv}as  -                                        -
