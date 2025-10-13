@@ -4,17 +4,21 @@ import subprocess
 
 
 class BluetoothServer:
-    def __init__(self, channel=1, bluetooth_name=None):
+    def __init__(self, channel=1, bluetooth_name=None, discoverable=True, discoverable_time=300):
         self.channel = channel
         self.server_socket = None
         self.is_running = False
-        # 获取本地蓝牙适配器的MAC地址（解决地址错误的关键）
+        # 获取本地蓝牙适配器的MAC地址
         self.local_mac = self._get_local_mac()
         print(f"local_mac=>{self.local_mac}")
-
+        
         # 如果提供了蓝牙名称，则设置蓝牙适配器名称
         if bluetooth_name:
             self.set_bluetooth_name(bluetooth_name)
+        
+        # 设置蓝牙可见性
+        if discoverable:
+            self.set_discoverable(discoverable_time)
 
     def _get_local_mac(self):
         """获取本地蓝牙适配器的MAC地址（hci0）"""
@@ -25,20 +29,12 @@ class BluetoothServer:
                 if "BD Address" in line:
                     line = line.split(": ")[1].strip()
                     return line.split(" ")[0].strip()
-
             return ""  # 未找到时留空
         except subprocess.CalledProcessError:
             return ""
 
     def set_bluetooth_name(self, name):
-        """设置蓝牙适配器的名称
-
-        Args:
-            name (str): 要设置的蓝牙名称
-
-        Returns:
-            bool: 设置是否成功
-        """
+        """设置蓝牙适配器的名称"""
         try:
             # 使用hciconfig命令设置蓝牙名称
             subprocess.run(["hciconfig", "hci0", "name", name], check=True)
@@ -46,6 +42,28 @@ class BluetoothServer:
             return True
         except subprocess.CalledProcessError as e:
             print(f"设置蓝牙名称失败: {e}")
+            return False
+    
+    def set_discoverable(self, timeout=0):
+        """设置蓝牙适配器为可发现模式（使用bluetoothctl）
+        
+        Args:
+            timeout (int): 可发现模式持续时间（秒），0表示一直可发现
+        
+        Returns:
+            bool: 设置是否成功
+        """
+        try:
+            # 使用bluetoothctl命令设置可发现模式
+            subprocess.run(["bluetoothctl", "discoverable", "on"], check=True)
+            
+            # 设置可发现超时时间
+            if timeout > 0:
+                subprocess.run(["bluetoothctl", "discoverable-timeout", str(timeout)], check=True)
+            print(f"蓝牙设备已设置为可发现模式")
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"设置蓝牙可发现模式失败: {e}")
             return False
 
     def start(self):
@@ -100,5 +118,6 @@ if __name__ == "__main__":
     if server.start():
         try:
             input("按Ctrl+C停止服务器...\n")
+            print("结束服务")
         except KeyboardInterrupt:
             server.stop()
