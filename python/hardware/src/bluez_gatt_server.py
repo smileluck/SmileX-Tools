@@ -55,9 +55,10 @@ class Application(dbus.service.Object):
         self.path = "/"
         self.services = []
         dbus.service.Object.__init__(self, bus, self.path)
-        self.add_service(HeartRateService(bus, 0))
-        self.add_service(BatteryService(bus, 1))
-        self.add_service(TestService(bus, 2))
+        # self.add_service(HeartRateService(bus, 0))
+        # self.add_service(BatteryService(bus, 1))
+        # self.add_service(TestService(bus, 2))
+        self.add_service(WIFIService(bus, 0))
 
     def get_path(self):
         return dbus.ObjectPath(self.path)
@@ -245,245 +246,17 @@ class Descriptor(dbus.service.Object):
         raise NotSupportedException()
 
 
-class HeartRateService(Service):
+class WIFIService(Service):
     """
-    Fake Heart Rate Service that simulates a fake heart beat and control point
-    behavior.
+    WiFi服务，用于接收WiFi账号密码并返回SUCCESS
 
     """
 
-    HR_UUID = "0000180d-0000-1000-8000-00805f9b34fb"
+    WIFI_SVC_UUID = "12345678-1234-5678-1234-56789abcdef7"
 
     def __init__(self, bus, index):
-        Service.__init__(self, bus, index, self.HR_UUID, True)
-        self.add_characteristic(HeartRateMeasurementChrc(bus, 0, self))
-        self.add_characteristic(BodySensorLocationChrc(bus, 1, self))
-        self.add_characteristic(HeartRateControlPointChrc(bus, 2, self))
-        self.energy_expended = 0
-
-
-class HeartRateMeasurementChrc(Characteristic):
-    HR_MSRMT_UUID = "00002a37-0000-1000-8000-00805f9b34fb"
-
-    def __init__(self, bus, index, service):
-        Characteristic.__init__(
-            self, bus, index, self.HR_MSRMT_UUID, ["notify"], service
-        )
-        self.notifying = False
-        self.hr_ee_count = 0
-
-    def hr_msrmt_cb(self):
-        value = []
-        value.append(dbus.Byte(0x06))
-
-        value.append(dbus.Byte(randint(90, 130)))
-
-        if self.hr_ee_count % 10 == 0:
-            value[0] = dbus.Byte(value[0] | 0x08)
-            value.append(dbus.Byte(self.service.energy_expended & 0xFF))
-            value.append(dbus.Byte((self.service.energy_expended >> 8) & 0xFF))
-
-        self.service.energy_expended = min(0xFFFF, self.service.energy_expended + 1)
-        self.hr_ee_count += 1
-
-        print("Updating value: " + repr(value))
-
-        self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
-
-        return self.notifying
-
-    def _update_hr_msrmt_simulation(self):
-        print("Update HR Measurement Simulation")
-
-        if not self.notifying:
-            return
-
-        GLib.timeout_add(1000, self.hr_msrmt_cb)
-
-    def StartNotify(self):
-        if self.notifying:
-            print("Already notifying, nothing to do")
-            return
-
-        self.notifying = True
-        self._update_hr_msrmt_simulation()
-
-    def StopNotify(self):
-        if not self.notifying:
-            print("Not notifying, nothing to do")
-            return
-
-        self.notifying = False
-        self._update_hr_msrmt_simulation()
-
-
-class BodySensorLocationChrc(Characteristic):
-    BODY_SNSR_LOC_UUID = "00002a38-0000-1000-8000-00805f9b34fb"
-
-    def __init__(self, bus, index, service):
-        Characteristic.__init__(
-            self, bus, index, self.BODY_SNSR_LOC_UUID, ["read"], service
-        )
-
-    def ReadValue(self, options):
-        # Return 'Chest' as the sensor location.
-        return [0x01]
-
-
-class HeartRateControlPointChrc(Characteristic):
-    HR_CTRL_PT_UUID = "00002a39-0000-1000-8000-00805f9b34fb"
-
-    def __init__(self, bus, index, service):
-        Characteristic.__init__(
-            self, bus, index, self.HR_CTRL_PT_UUID, ["write"], service
-        )
-
-    def WriteValue(self, value, options):
-        print("Heart Rate Control Point WriteValue called")
-
-        if len(value) != 1:
-            raise InvalidValueLengthException()
-
-        byte = value[0]
-        print("Control Point value: " + repr(byte))
-
-        if byte != 1:
-            raise FailedException("0x80")
-
-        print("Energy Expended field reset!")
-        self.service.energy_expended = 0
-
-
-class BatteryService(Service):
-    """
-    Fake Battery service that emulates a draining battery.
-
-    """
-
-    BATTERY_UUID = "180f"
-
-    def __init__(self, bus, index):
-        Service.__init__(self, bus, index, self.BATTERY_UUID, True)
-        self.add_characteristic(BatteryLevelCharacteristic(bus, 0, self))
-
-
-class BatteryLevelCharacteristic(Characteristic):
-    """
-    Fake Battery Level characteristic. The battery level is drained by 2 points
-    every 5 seconds.
-
-    """
-
-    BATTERY_LVL_UUID = "2a19"
-
-    def __init__(self, bus, index, service):
-        Characteristic.__init__(
-            self, bus, index, self.BATTERY_LVL_UUID, ["read", "notify"], service
-        )
-        self.notifying = False
-        self.battery_lvl = 100
-        GLib.timeout_add(5000, self.drain_battery)
-
-    def notify_battery_level(self):
-        if not self.notifying:
-            return
-        self.PropertiesChanged(
-            GATT_CHRC_IFACE, {"Value": [dbus.Byte(self.battery_lvl)]}, []
-        )
-
-    def drain_battery(self):
-        if not self.notifying:
-            return True
-        if self.battery_lvl > 0:
-            self.battery_lvl -= 2
-            if self.battery_lvl < 0:
-                self.battery_lvl = 0
-        print("Battery Level drained: " + repr(self.battery_lvl))
-        self.notify_battery_level()
-        return True
-
-    def ReadValue(self, options):
-        print("Battery Level read: " + repr(self.battery_lvl))
-        return [dbus.Byte(self.battery_lvl)]
-
-    def StartNotify(self):
-        if self.notifying:
-            print("Already notifying, nothing to do")
-            return
-
-        self.notifying = True
-        self.notify_battery_level()
-
-    def StopNotify(self):
-        if not self.notifying:
-            print("Not notifying, nothing to do")
-            return
-
-        self.notifying = False
-
-
-class TestService(Service):
-    """
-    Dummy test service that provides characteristics and descriptors that
-    exercise various API functionality.
-
-    """
-
-    TEST_SVC_UUID = "12345678-1234-5678-1234-56789abcdef0"
-
-    def __init__(self, bus, index):
-        Service.__init__(self, bus, index, self.TEST_SVC_UUID, True)
-        self.add_characteristic(TestCharacteristic(bus, 0, self))
-        self.add_characteristic(TestEncryptCharacteristic(bus, 1, self))
-        self.add_characteristic(TestSecureCharacteristic(bus, 2, self))
-
-
-class TestCharacteristic(Characteristic):
-    """
-    Dummy test characteristic. Allows writing arbitrary bytes to its value, and
-    contains "extended properties", as well as a test descriptor.
-
-    """
-
-    TEST_CHRC_UUID = "12345678-1234-5678-1234-56789abcdef1"
-
-    def __init__(self, bus, index, service):
-        Characteristic.__init__(
-            self,
-            bus,
-            index,
-            self.TEST_CHRC_UUID,
-            ["read", "write", "writable-auxiliaries"],
-            service,
-        )
-        self.value = []
-        self.add_descriptor(TestDescriptor(bus, 0, self))
-        self.add_descriptor(CharacteristicUserDescriptionDescriptor(bus, 1, self))
-
-    def ReadValue(self, options):
-        print("TestCharacteristic Read: " + repr(self.value))
-        return self.value
-
-    def WriteValue(self, value, options):
-        print("TestCharacteristic Write: " + repr(value))
-        self.value = value
-
-
-class TestDescriptor(Descriptor):
-    """
-    Dummy test descriptor. Returns a static value.
-
-    """
-
-    TEST_DESC_UUID = "12345678-1234-5678-1234-56789abcdef2"
-
-    def __init__(self, bus, index, characteristic):
-        Descriptor.__init__(
-            self, bus, index, self.TEST_DESC_UUID, ["read", "write"], characteristic
-        )
-
-    def ReadValue(self, options):
-        return [dbus.Byte("T"), dbus.Byte("e"), dbus.Byte("s"), dbus.Byte("t")]
+        Service.__init__(self, bus, index, self.WIFI_SVC_UUID, True)
+        self.add_characteristic(WiFiCharacteristic(bus, 0, self))
 
 
 class CharacteristicUserDescriptionDescriptor(Descriptor):
@@ -511,108 +284,126 @@ class CharacteristicUserDescriptionDescriptor(Descriptor):
         self.value = value
 
 
-class TestEncryptCharacteristic(Characteristic):
+class WiFiCharacteristic(Characteristic):
     """
-    Dummy test characteristic requiring encryption.
+    WiFi特征，用于接收WiFi账号密码并返回SUCCESS
 
     """
 
-    TEST_CHRC_UUID = "12345678-1234-5678-1234-56789abcdef3"
+    WIFI_CHRC_UUID = "12345678-1234-5678-1234-56789abcdef8"
 
     def __init__(self, bus, index, service):
         Characteristic.__init__(
             self,
             bus,
             index,
-            self.TEST_CHRC_UUID,
-            ["encrypt-read", "encrypt-write"],
+            self.WIFI_CHRC_UUID,
+            ["read", "write", "writable-auxiliaries"],
             service,
         )
-        self.value = []
-        self.add_descriptor(TestEncryptDescriptor(bus, 2, self))
-        self.add_descriptor(CharacteristicUserDescriptionDescriptor(bus, 3, self))
+        self.wifi_ssid = ""
+        self.wifi_password = ""
+        self.last_status = "SUCCESS"
+        self.add_descriptor(CharacteristicUserDescriptionDescriptor(bus, 1, self))
 
     def ReadValue(self, options):
-        print("TestEncryptCharacteristic Read: " + repr(self.value))
-        return self.value
+        """
+        读取操作，返回操作状态（SUCCESS或错误信息）
+
+        Args:
+            options: 读取选项
+
+        Returns:
+            list: 包含状态信息字节的列表
+        """
+        print(f"WiFiCharacteristic Read: 返回状态 - {self.last_status}")
+        return [dbus.Byte(c) for c in self.last_status.encode("utf-8")]
 
     def WriteValue(self, value, options):
-        print("TestEncryptCharacteristic Write: " + repr(value))
-        self.value = value
+        """
+        写入操作，接收WiFi账号密码数据并解析
+        数据格式: [SSID长度(1字节)] + [SSID内容] + [密码长度(1字节)] + [密码内容]
 
+        Args:
+            value: 写入的值，包含WiFi账号密码
+            options: 写入选项
+        """
+        print(f"WiFiCharacteristic Write: 接收到WiFi数据，长度: {len(value)}字节")
 
-class TestEncryptDescriptor(Descriptor):
-    """
-    Dummy test descriptor requiring encryption. Returns a static value.
+        try:
+            # 检查数据长度是否至少包含两个长度字节
+            if len(value) < 2:
+                raise ValueError("数据长度不足")
 
-    """
+            # 解析SSID长度和内容
+            ssid_length = value[0]
+            if ssid_length <= 0:
+                raise ValueError("SSID长度不能为0")
 
-    TEST_DESC_UUID = "12345678-1234-5678-1234-56789abcdef4"
+            # 检查是否有足够的数据用于SSID
+            if len(value) < ssid_length + 1:
+                raise ValueError("SSID数据不完整")
 
-    def __init__(self, bus, index, characteristic):
-        Descriptor.__init__(
-            self,
-            bus,
-            index,
-            self.TEST_DESC_UUID,
-            ["encrypt-read", "encrypt-write"],
-            characteristic,
-        )
+            # 提取SSID（从索引1开始，取ssid_length个字节）
+            ssid_bytes = bytes(value[1 : 1 + ssid_length])
+            self.wifi_ssid = ssid_bytes.decode("utf-8")
 
-    def ReadValue(self, options):
-        return [dbus.Byte("T"), dbus.Byte("e"), dbus.Byte("s"), dbus.Byte("t")]
+            # 计算密码部分的起始索引
+            password_start_index = 1 + ssid_length
 
+            # 检查是否还有足够的数据用于密码长度字节
+            if len(value) <= password_start_index:
+                raise ValueError("缺少密码长度数据")
 
-class TestSecureCharacteristic(Characteristic):
-    """
-    Dummy test characteristic requiring secure connection.
+            # 解析密码长度和内容
+            password_length = value[password_start_index]
 
-    """
+            # 检查是否有足够的数据用于密码
+            if len(value) < password_start_index + 1 + password_length:
+                raise ValueError("密码数据不完整")
 
-    TEST_CHRC_UUID = "12345678-1234-5678-1234-56789abcdef5"
+            # 提取密码
+            password_bytes = bytes(
+                value[
+                    password_start_index
+                    + 1 : password_start_index
+                    + 1
+                    + password_length
+                ]
+            )
+            self.wifi_password = password_bytes.decode("utf-8")
 
-    def __init__(self, bus, index, service):
-        Characteristic.__init__(
-            self,
-            bus,
-            index,
-            self.TEST_CHRC_UUID,
-            ["secure-read", "secure-write"],
-            service,
-        )
-        self.value = []
-        self.add_descriptor(TestSecureDescriptor(bus, 2, self))
-        self.add_descriptor(CharacteristicUserDescriptionDescriptor(bus, 3, self))
+            # 打印解析结果
+            print(f"成功解析WiFi信息:")
+            print(f"- SSID: {self.wifi_ssid}")
+            print(f"- 密码: {'*' * len(self.wifi_password)}")  # 不打印明文密码
 
-    def ReadValue(self, options):
-        print("TestSecureCharacteristic Read: " + repr(self.value))
-        return self.value
+            # 这里可以添加连接WiFi的逻辑
+            # self.connect_to_wifi(self.wifi_ssid, self.wifi_password)
 
-    def WriteValue(self, value, options):
-        print("TestSecureCharacteristic Write: " + repr(value))
-        self.value = value
+            # 设置状态为成功
+            self.last_status = "SUCCESS"
 
+        except UnicodeDecodeError:
+            error_msg = "解析失败: 无效的UTF-8编码"
+            print(error_msg)
+            self.last_status = f"ERROR: {error_msg}"
+        except Exception as e:
+            error_msg = f"解析失败: {str(e)}"
+            print(error_msg)
+            self.last_status = f"ERROR: {error_msg}"
 
-class TestSecureDescriptor(Descriptor):
-    """
-    Dummy test descriptor requiring secure connection. Returns a static value.
+    def connect_to_wifi(self, ssid, password):
+        """
+        连接WiFi的方法（示例实现）
 
-    """
-
-    TEST_DESC_UUID = "12345678-1234-5678-1234-56789abcdef6"
-
-    def __init__(self, bus, index, characteristic):
-        Descriptor.__init__(
-            self,
-            bus,
-            index,
-            self.TEST_DESC_UUID,
-            ["secure-read", "secure-write"],
-            characteristic,
-        )
-
-    def ReadValue(self, options):
-        return [dbus.Byte("T"), dbus.Byte("e"), dbus.Byte("s"), dbus.Byte("t")]
+        Args:
+            ssid: WiFi名称
+            password: WiFi密码
+        """
+        print(f"尝试连接到WiFi: {ssid}")
+        # 这里应该实现实际的WiFi连接逻辑
+        # 例如调用系统API或通过其他方式连接WiFi
 
 
 def register_app_cb():
@@ -647,7 +438,6 @@ def main(device_name="Wujie-Ble"):
         print("GattManager1 interface not found")
         return
 
-    
     # 修改适配器属性
     adapter_props = dbus.Interface(
         bus.get_object(BLUEZ_SERVICE_NAME, adapter), "org.freedesktop.DBus.Properties"
@@ -658,13 +448,11 @@ def main(device_name="Wujie-Ble"):
     adapter_props.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(1))
     adapter_props.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(300))
 
-
     app = Application(bus)
 
     service_manager = dbus.Interface(
         bus.get_object(BLUEZ_SERVICE_NAME, adapter), GATT_MANAGER_IFACE
     )
-
 
     mainloop = GLib.MainLoop()
 
