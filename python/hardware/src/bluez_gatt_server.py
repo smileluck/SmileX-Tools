@@ -18,12 +18,17 @@ mainloop = None
 
 BLUEZ_SERVICE_NAME = "org.bluez"
 GATT_MANAGER_IFACE = "org.bluez.GattManager1"
+ADAPTER_IFACE = "org.bluez.Adapter1"
 DBUS_OM_IFACE = "org.freedesktop.DBus.ObjectManager"
 DBUS_PROP_IFACE = "org.freedesktop.DBus.Properties"
 
 GATT_SERVICE_IFACE = "org.bluez.GattService1"
 GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
 GATT_DESC_IFACE = "org.bluez.GattDescriptor1"
+
+
+LE_ADVERTISING_MANAGER_IFACE = "org.bluez.LEAdvertisingManager1"
+LE_ADVERTISEMENT_IFACE = "org.bluez.LEAdvertisement1"
 
 
 class InvalidArgsException(dbus.exceptions.DBusException):
@@ -376,7 +381,8 @@ class WiFiCharacteristic(Characteristic):
             # 打印解析结果
             print(f"成功解析WiFi信息:")
             print(f"- SSID: {self.wifi_ssid}")
-            print(f"- 密码: {'*' * len(self.wifi_password)}")  # 不打印明文密码
+            # print(f"- 密码: {'*' * len(self.wifi_password)}")  # 不打印明文密码
+            print(f"- 密码：{self.wifi_password}")
 
             # 这里可以添加连接WiFi的逻辑
             # self.connect_to_wifi(self.wifi_ssid, self.wifi_password)
@@ -415,46 +421,127 @@ def register_app_error_cb(error):
     mainloop.quit()
 
 
-def find_adapter(bus):
+def find_adapter(bus, interface):
     remote_om = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, "/"), DBUS_OM_IFACE)
     objects = remote_om.GetManagedObjects()
 
     for o, props in objects.items():
-        if GATT_MANAGER_IFACE in props.keys():
+        if interface in props.keys():
             return o
 
     return None
 
 
-def main(device_name="Wujie-Ble"):
-    global mainloop
+class Advertisement(dbus.service.Object):
+    PATH_BASE = "/org/bluez/example/advertisement"
 
-    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+    def __init__(self, bus, index, advertising_type):
+        self.path = self.PATH_BASE + str(index)
+        self.bus = bus
+        self.ad_type = advertising_type
+        self.service_uuids = None
+        self.manufacturer_data = None
+        self.solicit_uuids = None
+        self.service_data = None
+        self.local_name = None
+        self.include_tx_power = False
+        self.data = None
+        dbus.service.Object.__init__(self, bus, self.path)
 
-    bus = dbus.SystemBus()
+    def get_properties(self):
+        properties = dict()
+        properties["Type"] = self.ad_type
+        if self.service_uuids is not None:
+            properties["ServiceUUIDs"] = dbus.Array(self.service_uuids, signature="s")
+        if self.solicit_uuids is not None:
+            properties["SolicitUUIDs"] = dbus.Array(self.solicit_uuids, signature="s")
+        if self.manufacturer_data is not None:
+            properties["ManufacturerData"] = dbus.Dictionary(
+                self.manufacturer_data, signature="qv"
+            )
+        if self.service_data is not None:
+            properties["ServiceData"] = dbus.Dictionary(
+                self.service_data, signature="sv"
+            )
+        if self.local_name is not None:
+            properties["LocalName"] = dbus.String(self.local_name)
+        if self.include_tx_power:
+            properties["Includes"] = dbus.Array(["tx-power"], signature="s")
 
-    adapter = find_adapter(bus)
+        if self.data is not None:
+            properties["Data"] = dbus.Dictionary(self.data, signature="yv")
+        return {LE_ADVERTISEMENT_IFACE: properties}
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    def add_service_uuid(self, uuid):
+        if not self.service_uuids:
+            self.service_uuids = []
+        self.service_uuids.append(uuid)
+
+    def add_solicit_uuid(self, uuid):
+        if not self.solicit_uuids:
+            self.solicit_uuids = []
+        self.solicit_uuids.append(uuid)
+
+    def add_manufacturer_data(self, manuf_code, data):
+        if not self.manufacturer_data:
+            self.manufacturer_data = dbus.Dictionary({}, signature="qv")
+        self.manufacturer_data[manuf_code] = dbus.Array(data, signature="y")
+
+    def add_service_data(self, uuid, data):
+        if not self.service_data:
+            self.service_data = dbus.Dictionary({}, signature="sv")
+        self.service_data[uuid] = dbus.Array(data, signature="y")
+
+    def add_local_name(self, name):
+        if not self.local_name:
+            self.local_name = ""
+        self.local_name = dbus.String(name)
+
+    def add_data(self, ad_type, data):
+        if not self.data:
+            self.data = dbus.Dictionary({}, signature="yv")
+        self.data[ad_type] = dbus.Array(data, signature="y")
+
+    @dbus.service.method(DBUS_PROP_IFACE, in_signature="s", out_signature="a{sv}")
+    def GetAll(self, interface):
+        print("GetAll")
+        if interface != LE_ADVERTISEMENT_IFACE:
+            raise InvalidArgsException()
+        print("returning props")
+        return self.get_properties()[LE_ADVERTISEMENT_IFACE]
+
+    @dbus.service.method(LE_ADVERTISEMENT_IFACE, in_signature="", out_signature="")
+    def Release(self):
+        print("%s: Released!" % self.path)
+
+
+class TestAdvertisement(Advertisement):
+
+    def __init__(self, bus, index, device_name):
+        Advertisement.__init__(self, bus, index, "peripheral")
+        self.add_service_uuid(WIFIService.WIFI_SVC_UUID)
+        # self.add_manufacturer_data(0xFFFF, [0x00, 0x01, 0x02, 0x03])
+        # self.add_service_data("9999", [0x00, 0x01, 0x02, 0x03, 0x04])
+        self.add_local_name(device_name)
+        self.include_tx_power = True
+        # self.add_data(0x26, [0x01, 0x01, 0x00])
+
+
+def gatt_service_manager(bus):
+
+    adapter = find_adapter(bus, GATT_MANAGER_IFACE)
     if not adapter:
         print("GattManager1 interface not found")
         return
-
-    # 修改适配器属性
-    adapter_props = dbus.Interface(
-        bus.get_object(BLUEZ_SERVICE_NAME, adapter), "org.freedesktop.DBus.Properties"
-    )
-
-    adapter_props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(1))
-    adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(1))
-    adapter_props.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(1))
-    adapter_props.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(300))
 
     app = Application(bus)
 
     service_manager = dbus.Interface(
         bus.get_object(BLUEZ_SERVICE_NAME, adapter), GATT_MANAGER_IFACE
     )
-
-    mainloop = GLib.MainLoop()
 
     print("Registering GATT application...")
 
@@ -464,6 +551,107 @@ def main(device_name="Wujie-Ble"):
         reply_handler=register_app_cb,
         error_handler=register_app_error_cb,
     )
+
+
+def register_ad_cb():
+    print("Advertisement registered")
+
+
+def register_ad_error_cb(error):
+    # 打印详细错误信息（包括DBus错误名称和描述）
+    error_name = (
+        error.get_dbus_name() if hasattr(error, "get_dbus_name") else "UnknownError"
+    )
+    error_msg = (
+        error.get_dbus_message() if hasattr(error, "get_dbus_message") else str(error)
+    )
+    print(f"广播注册失败:")
+    print(f"  错误类型: {error_name}")
+    print(f"  错误描述: {error_msg}")
+    # 注册失败时退出主循环（避免程序挂起）
+    if mainloop is not None:
+        mainloop.quit()
+
+
+def adapter_props(bus, device_name):
+
+    adapter = find_adapter(bus, ADAPTER_IFACE)
+    if not adapter:
+        print("Adapter1 interface not found")
+        return
+
+    # 修改适配器属性
+    adapter_props = dbus.Interface(
+        bus.get_object(BLUEZ_SERVICE_NAME, adapter), "org.freedesktop.DBus.Properties"
+    )
+    adapter_props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(1))
+    adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(1))
+    adapter_props.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(1))
+    adapter_props.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(300))
+
+    # 设置适配器名称（这会更改蓝牙设备本身的名称）
+    try:
+        adapter_props.Set("org.bluez.Adapter1", "Alias", dbus.String(device_name))
+        print(f"蓝牙适配器名称已设置为: {device_name}")
+    except Exception as e:
+        print(f"设置蓝牙适配器名称时出错: {e}")
+
+
+def advertise_manager(bus, device_name):
+
+    adapter = find_adapter(bus, ADAPTER_IFACE)
+    if not adapter:
+        print("Adapter1 interface not found")
+        return
+
+    ad_manager = dbus.Interface(
+        bus.get_object(BLUEZ_SERVICE_NAME, adapter), LE_ADVERTISING_MANAGER_IFACE
+    )
+
+    test_advertisement = TestAdvertisement(bus, 0, device_name)
+    ad_path = test_advertisement.get_path()
+
+    try:
+        # 尝试注册广播
+        ad_manager.RegisterAdvertisement(
+            ad_path,
+            {},  # 空配置表示使用默认参数（如信道、间隔）
+            reply_handler=register_ad_cb,
+            error_handler=register_ad_error_cb,
+        )
+    except dbus.exceptions.DBusException as e:
+        # 若已存在相同路径的广播实例，先注销再重试
+        if "org.bluez.Error.AlreadyExists" in str(e):
+            print(f"广播实例 {ad_path} 已存在，尝试注销后重新注册...")
+            try:
+                ad_manager.UnregisterAdvertisement(ad_path)
+                print("已注销旧广播实例")
+                # 重新注册
+                ad_manager.RegisterAdvertisement(
+                    ad_path,
+                    {},
+                    reply_handler=register_ad_cb,
+                    error_handler=register_ad_error_cb,
+                )
+            except Exception as e2:
+                print(f"注销旧广播实例失败: {str(e2)}")
+        else:
+            print(f"广播注册时发生未知错误: {str(e)}")
+
+
+def main(device_name="Wujie-Ble"):
+    global mainloop
+
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+
+    bus = dbus.SystemBus()
+
+    adapter_props(bus, device_name=device_name)
+
+    gatt_service_manager(bus)
+    advertise_manager(bus, device_name=device_name)
+
+    mainloop = GLib.MainLoop()
 
     mainloop.run()
 
