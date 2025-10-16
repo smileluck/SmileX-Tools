@@ -262,6 +262,7 @@ class WIFIService(Service):
     def __init__(self, bus, index):
         Service.__init__(self, bus, index, self.WIFI_SVC_UUID, True)
         self.add_characteristic(WiFiCharacteristic(bus, 0, self))
+        self.add_characteristic(WiFiNotifyCharacteristic(bus, 1, self))
 
 
 class CharacteristicUserDescriptionDescriptor(Descriptor):
@@ -410,6 +411,79 @@ class WiFiCharacteristic(Characteristic):
         print(f"尝试连接到WiFi: {ssid}")
         # 这里应该实现实际的WiFi连接逻辑
         # 例如调用系统API或通过其他方式连接WiFi
+
+
+class WiFiNotifyCharacteristic(Characteristic):
+    """
+    Fake WiFi Status characteristic. The wifi status is drained by 2 points
+    every 5 seconds.
+
+    """
+
+    WIFI_NOTIFY_UUID = "12345678-1234-5678-1234-56789abcdef9"
+
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(
+            self, bus, index, self.WIFI_NOTIFY_UUID, ["read", "notify"], service
+        )
+        self.current_index = 0
+        self.notifying = False
+        self.wifi_status = "SUCCESS"
+        self.timeout_id = None  # 用于保存定时器ID
+        # self.add_descriptor(CharacteristicUserDescriptionDescriptor(bus, 1, self))
+
+    def notify_wifi_status(self):
+        if not self.notifying:
+            return
+        print("Notifying WiFi Status: " + repr(self.wifi_status))
+         # 触发PropertiesChanged信号，通知客户端值已更新
+         
+        
+        self.PropertiesChanged(
+            GATT_CHRC_IFACE, {"Value": [dbus.Byte(c) for c in self.wifi_status.encode("utf-8")]}, []
+        )
+
+    def drain_wifi_status(self):
+        print("Draining WiFi Status")
+        if not self.notifying:
+            return True
+        # 示例：模拟状态变化（可替换为实际WiFi连接状态检测逻辑）
+        status_list = ["SUCCESS", "CONNECTING", "ERROR: Timeout", "SUCCESS"]
+        current_index = status_list.index(self.wifi_status)
+        # 循环切换状态
+        self.wifi_status = status_list[(current_index + 1) % len(status_list)]
+        print("WiFi Status updated: " + repr(self.wifi_status))
+        self.notify_wifi_status()  # 更新后触发通知
+        return True  # 保持循环
+
+
+    def ReadValue(self, options):
+        print("WiFi Status read: " + repr(self.wifi_status))
+        return [dbus.Byte(c) for c in self.wifi_status.encode("utf-8")]
+
+    def StartNotify(self):
+        if self.notifying:
+            print("Already notifying, nothing to do")
+            return
+        print("Start notify WiFi Status")
+        self.notifying = True
+        self.notify_wifi_status()
+        
+        self.timeout_id = GLib.timeout_add(1000, self.drain_wifi_status)
+
+    def StopNotify(self):
+        if not self.notifying:
+            print("Not notifying, nothing to do")
+            return
+
+        print("Stop notify WiFi Status")
+
+        self.notifying = False
+        
+        # 取消定时器
+        if self.timeout_id:
+            GLib.source_remove(self.timeout_id)
+            self.timeout_id = None
 
 
 def register_app_cb():
