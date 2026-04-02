@@ -1,13 +1,10 @@
 [project]
-name = "python"
+name = "pdf-password"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-]
-
-[tool.uv.workspace]
-members = [
-    "pdf-password",
+    "hashcat>=25.8.10",
+    "pyhanko>=0.34.1",
 ]

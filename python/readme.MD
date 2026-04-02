@@ -11,3 +11,4 @@
 ## 功能模块
 - **capture**: 爬虫模块
 - **hardware**: 硬件模块
+- **pdf-password**: PDF 密码模块
