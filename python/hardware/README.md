@@ -107,3 +107,12 @@ python src/main.py
 ##许可证
 
 [MIT License](LICENSE)
+
+# Ble Gatt Server
+## 返回状态
+1. NOCONFIG 五配置
+2. SUCCESS 连接成功，网络可用
+3. CONNECTING 连接中
+3. ERR: Unknown 未知错误
+4. ERR: Failed 连接失败
+5. ERR: Unavailable 网络不可用

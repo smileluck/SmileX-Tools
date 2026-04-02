@@ -469,7 +469,7 @@ class WiFiNotifyCharacteristic(Characteristic):
         self.notifying = True
         self.notify_wifi_status()
         
-        self.timeout_id = GLib.timeout_add(1000, self.drain_wifi_status)
+        self.timeout_id = GLib.timeout_add(3000, self.drain_wifi_status)
 
     def StopNotify(self):
         if not self.notifying:
