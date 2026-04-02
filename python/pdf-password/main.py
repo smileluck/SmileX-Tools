@@ -1,6 +1,10 @@
 import subprocess
 import os
 
+# 获取脚本所在目录并切换到该目录执行
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(SCRIPT_DIR)
+
 
 PDF_FILE = "input.pdf"
 HASH_FILE = "hash.txt"
