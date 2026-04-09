@@ -1,0 +1,27 @@
+[Unit]
+Description=Dynamic Password Authentication Server
+Documentation=man:dynauth(8)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/lib/dynauth/dynamic_password_server.py
+Restart=always
+RestartSec=5
+User=root
+Group=root
+
+# 安全加固
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/dynauth /var/log /etc/dynauth
+PrivateTmp=true
+NoNewPrivileges=true
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dynauth
+
+[Install]
+WantedBy=multi-user.target

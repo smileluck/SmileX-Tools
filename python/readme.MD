@@ -12,3 +12,4 @@
 - **capture**: 爬虫模块
 - **hardware**: 硬件模块
 - **pdf-password**: PDF 密码模块
+- **dynamic-auth-otp-pam**: 动态密码认证模块，基于TOTP实现安全的SSH登录认证
