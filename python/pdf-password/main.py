@@ -30,29 +30,29 @@ def run_hashcat():
     使用 Hashcat 进行 mask 破解
     已知：
         6位数字
-        前缀：60 / 00 / 30
+        前缀：60 / 00 / 30 / 68
     """
     print("[*] Running Hashcat...")
 
-    prefixes = ["60", "00", "30"]
+    prefixes = ["60", "00", "30", "68"]
 
-    for prefix in prefixes:
-        mask = f"{prefix}?d?d?d?d"
+    # for prefix in prefixes:
+    mask = f"?d?d?d?d?d?d"
 
-        print(f"[+] Trying mask: {mask}")
+    print(f"[+] Trying mask: {mask}")
 
-        cmd = [
-            "hashcat",
-            "-a", "3",          # mask attack
-            "-m", "10500",     # PDF hash 模式
-            HASH_FILE,
-            mask,
-            "-O",              # 优化
-            "-w", "3",         # 性能模式
-            "--quiet"
-        ]
+    cmd = [
+        "hashcat",
+        "-a", "3",          # mask attack
+        "-m", "10500",     # PDF hash 模式
+        HASH_FILE,
+        mask,
+        "-O",              # 优化
+        "-w", "3",         # 性能模式
+        "--quiet"
+    ]
 
-        subprocess.run(cmd)
+    subprocess.run(cmd)
 
 
 PASSWORD_FILE = "password.txt"
@@ -74,6 +74,9 @@ def get_result():
 
     if output:
         print("[+] Password found!")
+        print(f"Raw output: {output}")
+        print("\n")
+
         parts = output.split(":")
         if len(parts) >= 2:
             password = parts[-1]
